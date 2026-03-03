@@ -97,7 +97,7 @@ ssize_t input_sec(uint8_t* out_buf, size_t out_cap) {
             exit(6);
         }
 
-        free_tlv(client_hello); // client_hello not longer needed since serialization copies
+        // DONT free client_hello ; need it for signature verification in AWAIT
         state_sec = CLIENT_SERVER_HELLO_AWAIT;
 
         return (ssize_t) len;
@@ -149,7 +149,6 @@ ssize_t input_sec(uint8_t* out_buf, size_t out_cap) {
             exit(6);
         }
 
-        free_tlv(client_hello);
         free_tlv(server_hello); // server_hello not longer needed since serialization copies
         client_hello = NULL;
         server_hello = NULL;
@@ -192,6 +191,10 @@ ssize_t input_sec(uint8_t* out_buf, size_t out_cap) {
 
         uint8_t mac[MAC_SIZE];
         hmac(mac, hmac_buf, hmac_buf_len);
+
+        if (inc_mac) {
+            mac[0] ^= 0xFF; // corrupt the MAC for testing
+        }
 
         // package DATA TLV
         tlv* mac_tlv = create_tlv(MAC);
@@ -258,8 +261,6 @@ void output_sec(uint8_t* in_buf, size_t in_len) {
     }
     case CLIENT_SERVER_HELLO_AWAIT: {
         print("RECV SERVER HELLO");
-        UNUSED(in_buf);
-        UNUSED(in_len);
         // TODO: parse SERVER_HELLO and verify certificate chain/lifetime/hostname.
         // Verify handshake signature, load server ephemeral key, derive keys, enter DATA_STATE.
         // Required exit codes: bad cert(1), bad identity(2), bad handshake sig(3), malformed(6).
@@ -336,11 +337,14 @@ void output_sec(uint8_t* in_buf, size_t in_len) {
         // next, load server ephemeral key
         load_peer_public_key(pubkey_tlv->val, pubkey_tlv->length);
         
+        // populate global server_nonce
+        memcpy(server_nonce, nonce_tlv->val, NONCE_SIZE);
+
         // derive secret and keys for encryption
         derive_secret();
         uint8_t salt[NONCE_SIZE * 2];
         memcpy(salt, client_nonce, NONCE_SIZE);
-        memcpy(salt + NONCE_SIZE, nonce_tlv->val, NONCE_SIZE);
+        memcpy(salt + NONCE_SIZE, server_nonce, NONCE_SIZE);
         derive_keys(salt, sizeof(salt));
 
         free_tlv(client_hello);
@@ -352,8 +356,6 @@ void output_sec(uint8_t* in_buf, size_t in_len) {
         break;
     }
     case DATA_STATE: {
-        UNUSED(in_buf);
-        UNUSED(in_len);
         // TODO: parse DATA, verify MAC before decrypting, then output plaintext.
         // Required exit code: bad MAC(5), malformed(6).
         tlv*data_tlv = deserialize_tlv(in_buf, in_len);
