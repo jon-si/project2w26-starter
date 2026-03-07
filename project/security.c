@@ -62,7 +62,6 @@ void init_sec(int initial_state, char* peer_host, bool bad_mac) {
         load_ca_public_key("ca_public_key.bin");
     } else if (initial_state == SERVER_CLIENT_HELLO_AWAIT) { // server awaits client message
         load_certificate("server_cert.bin");  
-        load_private_key("server_key.bin"); 
     }
     generate_private_key();
     derive_public_key();
